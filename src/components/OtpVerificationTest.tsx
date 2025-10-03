@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
+import config from '../config/environment';
 
-const API_BASE_URL = 'https://9c544eaf310d.ngrok-free.app';
+const API_BASE_URL = config.apiBaseUrl;
 
 export const OtpVerificationTest: React.FC = () => {
   const [email, setEmail] = useState('');
