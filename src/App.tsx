@@ -49,48 +49,30 @@ const App = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Check for stored auth info and hotel
+  // Clear all authentication and start fresh from login
   useEffect(() => {
-    const checkAuthAndHotel = async () => {
+    const clearAuthAndStart = () => {
       try {
-        const storedAuth = localStorage.getItem('isAuthenticated');
-        const storedUser = localStorage.getItem('currentUser');
-        const token = adminApi.getToken();
+        // Clear all authentication data
+        localStorage.clear();
+        sessionStorage.clear();
+        adminApi.clearToken();
         
-        if (storedAuth === 'true' && storedUser && token) {
-          setIsAuthenticated(true);
-          setCurrentUser(JSON.parse(storedUser));
-          
-          // Check admin's hotels
-          try {
-            const hotelCheck = await checkAdminHotels();
-            console.log('🏨 Initial hotel check result:', hotelCheck);
-            
-            if (hotelCheck.hasHotel && hotelCheck.selectedHotel) {
-              setHotelId(hotelCheck.selectedHotel.id);
-              // Only navigate if we're on root path or sign-in path
-              if (location.pathname === '/' || location.pathname === '/sign-in') {
-                navigate(hotelCheck.redirectPath, { replace: true });
-              }
-            } else {
-              // No hotel found, redirect to create hotel if on root or sign-in
-              if (location.pathname === '/' || location.pathname === '/sign-in') {
-                navigate(hotelCheck.redirectPath, { replace: true });
-              }
-            }
-          } catch (error) {
-            console.error('🏨 Error during initial hotel check:', error);
-          }
-        }
+        // Reset state
+        setIsAuthenticated(false);
+        setCurrentUser(null);
+        setHotelId(null);
+        
+        console.log('🔐 Cleared all authentication data - starting fresh');
       } catch (error) {
-        console.error('Error restoring auth state:', error);
+        console.error('Error clearing authentication:', error);
       } finally {
         setIsLoading(false);
       }
     };
     
-    checkAuthAndHotel();
-  }, [navigate]);
+    clearAuthAndStart();
+  }, []);
 
   const handleLogin = async (user: User) => {
     console.log('🔐 Handling login for user:', user);
@@ -154,11 +136,11 @@ const App = () => {
       {/* Public Login Route */}
       <Route
         path="/sign-in"
-        element={isAuthenticated ? <Navigate to="/hotels" replace /> : <LoginScreen onLogin={handleLogin} />}
+        element={<LoginScreen onLogin={handleLogin} />}
       />
 
       {/* Root "/" route */}
-      <Route path="/" element={<Navigate to={isAuthenticated ? (hotelId ? `/hotel/${hotelId}/dashboard` : "/create-hotel") : "/sign-in"} replace />} />
+      <Route path="/" element={<Navigate to="/sign-in" replace />} />
 
       {/* Create Hotel Route */}
       <Route

@@ -4,22 +4,25 @@ import { Button } from './ui/button';
 import { 
   Save, 
   User, 
-  Palette
+  Palette,
+  Eye,
+  EyeOff
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
 import { useTheme } from '../lib/ThemeContext';
 import { adminApi } from '../services/api';
 
 const Settings = () => {
   const [activeTab, setActiveTab] = useState('profile');
   const [isLoading, setIsLoading] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false);
   const [settings, setSettings] = useState({
     profile: {
       firstName: 'John',
       lastName: 'Doe',
       email: 'john.doe@hotel.com',
       phone: '+1 (555) 123-4567',
-      role: 'Administrator'
+      role: 'Administrator',
+      apiKey: ''
     },
     appearance: {
       timezone: 'UTC-5',
@@ -27,24 +30,58 @@ const Settings = () => {
     }
   });
   
-  // Load profile from localStorage on component mount
+  // Load profile and API key on component mount
   useEffect(() => {
-    try {
-      const savedProfile = localStorage.getItem('user_profile');
-      if (savedProfile) {
-        const profileData = JSON.parse(savedProfile);
-        setSettings(prev => ({
-          ...prev,
-          profile: { ...prev.profile, ...profileData }
-        }));
-        console.log('🔍 Loaded profile from localStorage:', profileData);
+    const loadProfileAndApiKey = async () => {
+      try {
+        // Load profile from localStorage
+        const savedProfile = localStorage.getItem('user_profile');
+        if (savedProfile) {
+          const profileData = JSON.parse(savedProfile);
+          setSettings(prev => ({
+            ...prev,
+            profile: { ...prev.profile, ...profileData }
+          }));
+        }
+
+        // Load API key from backend
+        let hotelId: string | null = localStorage.getItem('currentHotelId');
+        
+        // Fallback: try to get hotel ID from admin hotels
+        if (!hotelId) {
+          try {
+            const hotels = await adminApi.getAdminHotels();
+            if (hotels && hotels.length > 0) {
+              const newHotelId = hotels[0].id || hotels[0].hotel_id?.toString();
+              hotelId = newHotelId || null;
+              if (hotelId) {
+                localStorage.setItem('currentHotelId', hotelId);
+              }
+            }
+          } catch (e) {
+            console.warn('Could not fetch admin hotels for hotel ID');
+          }
+        }
+        
+        if (hotelId) {
+          try {
+            const apiKeyData = await adminApi.getHotelApiKey(hotelId);
+            setSettings(prev => ({
+              ...prev,
+              profile: { ...prev.profile, apiKey: apiKeyData.apiKey || '' }
+            }));
+          } catch (error: any) {
+            console.warn('Could not load API key:', error.message);
+          }
+        }
+      } catch (e) {
+        console.warn('Could not load profile from localStorage');
       }
-    } catch (e) {
-      console.warn('Could not load profile from localStorage');
-    }
+    };
+
+    loadProfileAndApiKey();
   }, []);
   const { theme, setTheme } = useTheme();
-  const navigate = useNavigate();
 
   const handleSettingChange = (section: string, key: string, value: any) => {
     setSettings(prev => ({
@@ -99,6 +136,53 @@ const Settings = () => {
           username: localStorage.getItem('currentUser') ? JSON.parse(localStorage.getItem('currentUser')!).username : 'admin'
         };
 
+        // Save API key separately
+        let hotelId: string | null = localStorage.getItem('currentHotelId');
+        
+        // Fallback: try to get hotel ID from admin hotels
+        if (!hotelId) {
+          try {
+            const hotels = await adminApi.getAdminHotels();
+            if (hotels && hotels.length > 0) {
+              const newHotelId = hotels[0].id || hotels[0].hotel_id?.toString();
+              hotelId = newHotelId || null;
+              if (hotelId) {
+                localStorage.setItem('currentHotelId', hotelId);
+              }
+            }
+          } catch (e) {
+            console.warn('Could not fetch admin hotels for hotel ID');
+          }
+        }
+        
+        if (hotelId && settings.profile.apiKey) {
+          try {
+            await adminApi.saveHotelApiKey(hotelId, { apiKey: settings.profile.apiKey });
+            
+            // Show success toast for API key save
+            const apiKeyEvent = new CustomEvent('showToast', {
+              detail: { 
+                type: 'success', 
+                title: 'API Key Saved', 
+                message: 'PynBooking API key saved successfully!' 
+              }
+            });
+            window.dispatchEvent(apiKeyEvent);
+          } catch (apiKeyError: any) {
+            console.warn('API key save failed:', apiKeyError.message);
+            
+            // Show error toast for API key save failure
+            const apiKeyErrorEvent = new CustomEvent('showToast', {
+              detail: { 
+                type: 'error', 
+                title: 'API Key Save Failed', 
+                message: 'Could not save API key. Please try again.' 
+              }
+            });
+            window.dispatchEvent(apiKeyErrorEvent);
+          }
+        }
+
         try {
           if (adminId) {
             const response = await adminApi.updateAdminProfile(adminId, profileData);
@@ -123,6 +207,14 @@ const Settings = () => {
                 email: response.admin.email,
                 phone: response.admin.phone
               }
+            }));
+            
+            // Save profile to localStorage
+            localStorage.setItem('user_profile', JSON.stringify({
+              firstName: response.admin.firstName,
+              lastName: response.admin.lastName,
+              email: response.admin.email,
+              phone: response.admin.phone
             }));
           } else {
             throw new Error('Admin ID not found');
@@ -266,6 +358,28 @@ const Settings = () => {
                   className="w-full mt-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-slate-700 text-gray-900 dark:text-white focus:border-blue-500 focus:ring-blue-500"
                 />
               </div>
+            </div>
+            <div className="mt-6">
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">API Key</label>
+              <div className="relative mt-1">
+                <input
+                  type={showApiKey ? "text" : "password"}
+                  value={settings.profile.apiKey}
+                  onChange={(e) => handleSettingChange('profile', 'apiKey', e.target.value)}
+                  placeholder="Enter your PynBooking API key"
+                  className="w-full px-3 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-slate-700 text-gray-900 dark:text-white focus:border-blue-500 focus:ring-blue-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowApiKey(!showApiKey)}
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                >
+                  {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Enter your PynBooking API key for hotel integrations
+              </p>
             </div>
             <Button 
               onClick={() => handleSave('profile')}

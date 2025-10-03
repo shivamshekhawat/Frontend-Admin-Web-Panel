@@ -480,17 +480,24 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     }
     setError(null);
     setIsLoading(true);
+    console.log('🔐 Starting login process for username:', formData.username);
 
     try {
       const response = await admin2faApi.sendOtp(formData.username, formData.password);
-      if (response.success) {
+      console.log('Send OTP response:', response);
+      
+      // Check if we have a valid response with a token
+      if (response && response.tempToken) {
+        console.log('🔐 Setting tempToken and isOtpSent to true');
         setTempToken(response.tempToken);
         setIsOtpSent(true);
-        setError(null);
+        setError('OTP sent successfully! Please check your registered mobile/email and enter the 6-digit code.');
+        console.log('🔐 OTP sent successfully, OTP field should now be visible. Token:', response.tempToken.substring(0, 20) + '...');
       } else {
-        throw new Error(response.message || 'Failed to send OTP');
+        throw new Error(response?.message || 'Failed to authenticate. Please check your credentials.');
       }
     } catch (error: any) {
+      console.error('Send OTP error:', error);
       setError(error.message || 'Invalid credentials or failed to send OTP');
     } finally {
       setIsLoading(false);
@@ -513,19 +520,23 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
 
     try {
       const response = await admin2faApi.verifyOtp(formData.otp, tempToken);
-      if (response.success && response.authToken) {
-        // Save auth token using the same key as adminApi
-        localStorage.setItem('auth_token', response.authToken);
+      if (response.success && response.token) {
+        // Save auth token
+        localStorage.setItem('auth_token', response.token);
         
-        // Create user object
+        // Create user object from response
         const user: User = {
-          username: formData.username,
-          email: formData.username,
-          role: 'Hotel Administrator',
+          username: response.admin.username || formData.username,
+          email: response.admin.email || formData.username,
+          role: response.admin.role || 'Hotel Administrator',
           accessScope: 'full',
         };
         
-        // Call onLogin which will trigger hotel checking in App.tsx
+        // Save user info
+        localStorage.setItem('currentUser', JSON.stringify(user));
+        localStorage.setItem('isAuthenticated', 'true');
+        
+        // Use onLogin callback
         onLogin(user);
       } else {
         throw new Error(response.message || 'OTP verification failed');
@@ -559,6 +570,9 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     setActiveScreen('login');
     setError(null);
   };
+
+  // Debug: Log current state
+  console.log('🔍 Render state - isOtpSent:', isOtpSent, 'tempToken:', tempToken ? tempToken.substring(0, 10) + '...' : 'null');
 
   // Handle different screens based on activeScreen state
   if (activeScreen === 'signup') {
@@ -701,7 +715,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
               )}
 
               {error && (
-                <p className="text-sm text-red-500">{error}</p>
+                <p className={`text-sm ${error.includes('successful') ? 'text-green-600' : 'text-red-500'}`}>{error}</p>
               )}
 
               {!isOtpSent && (
@@ -731,7 +745,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                 {isLoading ? (
                   <div className="flex items-center space-x-2">
                     <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    <span>{isOtpSent ? 'Verifying...' : 'Sending OTP...'}</span>
+                    <span>{isOtpSent ? 'Verifying...' : 'Authenticating...'}</span>
                   </div>
                 ) : (
                   isOtpSent ? 'Verify OTP' : 'Send OTP'

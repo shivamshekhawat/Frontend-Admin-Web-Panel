@@ -149,6 +149,19 @@ export interface UpdateHotelPasswordResponse {
   message: string;
 }
 
+export interface HotelApiKeyResponse {
+  apiKey: string;
+}
+
+export interface SaveHotelApiKeyPayload {
+  apiKey: string;
+}
+
+export interface SaveHotelApiKeyResponse {
+  success: boolean;
+  message: string;
+}
+
 // Room-related interfaces
 export interface CreateRoomPayload {
   hotel_id: string;
@@ -366,29 +379,28 @@ const buildHeaders = (withAuth: boolean = true): HeadersInit => {
       console.error('🔐 No auth token found in localStorage');
       throw new Error('Authentication required. Please login again.');
     }
+    
+    // Basic token validation
+    if (token.length < 10) {
+      console.error('🔐 Token too short:', token);
+      clearAuth(); // Clear invalid token
+      throw new Error('Invalid authentication token. Please login again.');
+    }
+    
     console.log('🔐 Using auth token:', token.substring(0, 20) + '...');
     headers['Authorization'] = `Bearer ${token}`;
   }
 
+  console.log('🔐 Final headers being sent:', headers);
   return headers;
 };
 
 
 
 const handleResponse = async <T>(response: Response, defaultError: string): Promise<T> => {
-  // Log response details for debugging
   console.log(`🔍 Response Status: ${response.status} ${response.statusText}`);
-  console.log(`🔍 Response Headers:`, Object.fromEntries(response.headers.entries()));
   
   if (!response.ok) {
-    // Check if response is HTML (common when API is down or misconfigured)
-    const contentType = response.headers.get('content-type') || '';
-    if (contentType.includes('text/html')) {
-      const htmlText = await response.text().catch(() => 'Unable to read HTML response');
-      console.log(`🔍 HTML Response (first 200 chars):`, htmlText.substring(0, 200));
-      throw new ApiError(response.status, 'Server returned HTML instead of JSON. This usually means the endpoint doesn\'t exist or the server is misconfigured.');
-    }
-
     let errorData: any = {};
     try {
       const errorText = await response.text();
@@ -400,7 +412,19 @@ const handleResponse = async <T>(response: Response, defaultError: string): Prom
     }
     
     const errorMessage = errorData.message || errorData.error || defaultError;
-    console.log(`🔍 API Error:`, errorMessage);
+    
+    // Handle specific error codes
+    if (response.status === 401) {
+      clearAuth();
+      throw new ApiError(401, 'Session expired. Please login again.');
+    }
+    if (response.status === 403) {
+      throw new ApiError(403, 'Access denied. Admin privileges required.');
+    }
+    if (response.status === 404) {
+      throw new ApiError(404, 'Endpoint not found. Please check the API configuration.');
+    }
+    
     throw new ApiError(response.status, errorMessage);
   }
 
@@ -676,7 +700,7 @@ export const adminApi = {
       console.log('🏨 Creating hotel with payload:', payload);
       console.log('🏨 Using token:', getAuthToken());
       
-      const response = await fetch(`${API_BASE_URL}/api/hotels/signup`, {
+      const response = await fetch(`${API_BASE_URL}/api/admin/hotels`, {
         method: 'POST',
         headers: buildHeaders(true),
         body: JSON.stringify(payload),
@@ -686,21 +710,14 @@ export const adminApi = {
       console.log('🏨 Create hotel response headers:', Object.fromEntries(response.headers.entries()));
 
       if (response.status === 401) {
-        console.log('🏨 Token invalid, clearing auth and redirecting to login');
         clearAuth();
-        throw new ApiError(401, 'Your session has expired. Please login again to create a hotel.');
+        throw new ApiError(401, 'Session expired. Please login again.');
       }
-
-      if (response.status === 400) {
-        const errorData = await response.json().catch(() => ({}));
-        console.log('🏨 Bad request error:', errorData);
-        
-        // If it's a token error, the 2FA token might not be compatible
-        if (errorData.error === 'Invalid Token') {
-          throw new ApiError(400, 'The authentication token from 2FA login is not compatible with hotel creation. This is a backend compatibility issue.');
-        }
-        
-        throw new ApiError(400, errorData.message || 'Invalid hotel data provided.');
+      if (response.status === 403) {
+        throw new ApiError(403, 'Access denied. Admin privileges required to create hotels.');
+      }
+      if (response.status === 404) {
+        throw new ApiError(404, 'Hotel creation endpoint not found. Please check API configuration.');
       }
 
       return handleResponse<CreateHotelResponse>(response, 'Create hotel failed');
@@ -1142,6 +1159,36 @@ export const adminApi = {
 
     const data = await handleResponse<any>(response, 'Failed to fetch guests with rooms');
     return Array.isArray(data) ? data : data.response || data.data || [];
+  },
+
+  // Get Hotel API Key
+  async getHotelApiKey(hotelId: string | number): Promise<HotelApiKeyResponse> {
+    const url = `${API_BASE_URL}/api/hotels/${encodeURIComponent(String(hotelId))}/api-key`;
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: buildHeaders(true),
+    });
+    return handleResponse<HotelApiKeyResponse>(response, 'Failed to fetch hotel API key');
+  },
+
+  // Save Hotel API Key
+  async saveHotelApiKey(hotelId: string | number, payload: SaveHotelApiKeyPayload): Promise<SaveHotelApiKeyResponse> {
+    const url = `${API_BASE_URL}/api/hotels/${encodeURIComponent(String(hotelId))}/api-key`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: buildHeaders(true),
+      body: JSON.stringify(payload),
+    });
+    return handleResponse<SaveHotelApiKeyResponse>(response, 'Failed to save hotel API key');
+  },
+
+  // Check if admin has hotel
+  async checkAdminHasHotel(): Promise<{ hasHotel: boolean }> {
+    const response = await fetch(`${API_BASE_URL}/api/admin/has-hotel`, {
+      method: 'GET',
+      headers: buildHeaders(true),
+    });
+    return handleResponse<{ hasHotel: boolean }>(response, 'Failed to check hotel status');
   }
 };
 

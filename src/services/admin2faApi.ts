@@ -2,21 +2,37 @@ import config from '../config/environment';
 
 const API_BASE_URL = config.apiBaseUrl;
 
+export interface SendOtpRequest {
+  username: string;
+  password: string;
+}
+
 export interface SendOtpResponse {
   success: boolean;
   message: string;
   tempToken: string;
 }
 
+export interface VerifyOtpRequest {
+  otp: string;
+  tempToken: string;
+}
+
 export interface VerifyOtpResponse {
   success: boolean;
+  token: string;
+  admin: {
+    username: string;
+    email: string;
+    role: string;
+  };
   message: string;
-  authToken: string;
+  authToken?: string; // For compatibility
 }
 
 export const admin2faApi = {
   async sendOtp(username: string, password: string): Promise<SendOtpResponse> {
-    const response = await fetch(`${API_BASE_URL}/api/v1/admin/auth/send-otp`, {
+    const response = await fetch(`${API_BASE_URL}/api/admin/auth/send-otp`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -34,7 +50,7 @@ export const admin2faApi = {
   },
 
   async verifyOtp(otp: string, tempToken: string): Promise<VerifyOtpResponse> {
-    const response = await fetch(`${API_BASE_URL}/api/v1/admin/auth/verify-otp`, {
+    const response = await fetch(`${API_BASE_URL}/api/admin/auth/verify-otp`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -45,9 +61,11 @@ export const admin2faApi = {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || 'Invalid or expired OTP');
+      throw new Error(errorData.message || 'Failed to verify OTP');
     }
 
-    return response.json();
+    const data = await response.json();
+    // Add authToken for compatibility with existing login flow
+    return { ...data, authToken: data.token };
   },
 };
